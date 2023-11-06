@@ -27,15 +27,12 @@ $$
 import deepxde as dde
 import numpy as np
 
-# 1. 几何参数
-# 1.1 平板
 # 初始化参数
 k_eff = 1  # 有效增殖系数
 a = 1  # 平板的宽度
 B2 = (np.pi / a) ** 2  # 系统临界时的几何曲率
 l = 16  # 神经网络的深度
 s = 20  # 神经网络的中间层隐藏神经单元数量
-Pi = 1  # 内部权重
 Pb = 100  # 边界权重
 C = 0.5  # 解析解参数
 
@@ -68,7 +65,7 @@ net = dde.nn.PFNN(layer_size, activation, initializer)
 # 定义模型
 model = dde.Model(data, net)
 # 定义求解器
-model.compile("adam", lr=0.001, metrics=["l2 relative error"], loss_weights=[Pi, Pb])
+model.compile("adam", lr=0.001, metrics=["l2 relative error"], loss_weights=[1, Pb])
 # 训练模型
 losshistory, train_state = model.train(epochs=3500)
 # 保存和可视化训练结果
