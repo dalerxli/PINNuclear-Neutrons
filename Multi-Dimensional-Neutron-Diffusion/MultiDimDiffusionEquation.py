@@ -33,39 +33,36 @@ import numpy as np
 k_eff = 1  # 有效增殖系数
 a = 1  # 平板的宽度
 B2 = (np.pi / a) ** 2  # 系统临界时的几何曲率
-l = 16  # 神经网络的深度
+l = 3  # 神经网络的深度
 s = 20  # 神经网络的中间层隐藏神经单元数量
 Pb = 100  # 边界权重
-C = 0.5  # 解析解参数
-
-
+C = 0.005  # 解析解参数
 # 定义解析解
 def phi_analytical(x):
     return C * np.cos(x * np.pi / a)
-
-
 # 定义几何网格
 geom = dde.geometry.Interval(-a / 2, a / 2)
-
-
 # 定义微分方程
 def pde(x, phi):
     dphi_xx = dde.grad.hessian(phi, x, i=0, j=0)
     return dphi_xx + B2 * phi
-
-
 # 定义边界条件
 bc = dde.icbc.DirichletBC(geom, lambda x: 0, lambda _, on_boundary: on_boundary)
 # 定义数据
-data = dde.data.PDE(geom, pde, bc, num_domain=898, num_boundary=2, solution=phi_analytical, num_test=1000)
+data = dde.data.PDE(geom, pde, bc, num_domain=98, num_boundary=2, solution=phi_analytical, num_test=100)
 # 定义神经网络
 layer_size = [1] + [s] * l + [1]
 activation = "tanh"
 # 网络初始值权重采用高斯分布随机采样
 initializer = "Glorot uniform"
-net = dde.nn.FNN(layer_size, activation, initializer=initializer)
+net = dde.nn.PFNN(layer_size, activation, initializer)
 # 定义模型
 model = dde.Model(data,net)
 # 定义求解器
+model.compile("adam", lr=0.001, metrics=["l2 relative error"])
+# 训练模型
+losshistory, train_state = model.train(epochs=1000)
+# 保存和可视化训练结果
+dde.saveplot(losshistory, train_state, issave=True, isplot=True)
 
 
