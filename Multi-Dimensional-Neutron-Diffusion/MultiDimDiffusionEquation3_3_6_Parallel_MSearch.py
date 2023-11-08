@@ -27,7 +27,7 @@ import multiprocessing
 
 # 初始化参数
 k_eff = 1.00  # 有效增殖系数
-k_inf = 1.0041  # 无穷增殖系数
+k_inf = 1.00010  # 无穷增殖系数
 epsilon = 0.001  # 临界判断阈值
 a = 1  # 平板的宽度
 D = 0.211e-2  # 扩散系数
@@ -47,7 +47,7 @@ num_terms = 10  # 考虑的项数
 
 # 定义初值条件
 def phi_0(x):
-    return np.cos(np.pi * x[:, 0:1] / a) - 0.4 * np.cos(2 * np.pi * x[:, 0:1] / a) - 0.4
+    return 0.5 * (np.cos(2 * np.pi * x[:, 0:1] / a) + 1)
 
 
 # 定义解析解
