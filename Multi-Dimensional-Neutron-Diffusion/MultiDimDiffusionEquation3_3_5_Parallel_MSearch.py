@@ -36,7 +36,7 @@ L2 = 2.1037e-4  # 系统临界时的扩散长度
 B2 = (np.pi / a) ** 2  # 系统临界时的几何曲率
 l = 5  # 神经网络的深度
 s = 20  # 神经网络的中间层隐藏神经单元数量
-Pi = 50  # 初值权重
+Pi = 100  # 初值权重
 Pb = 100  # 边界权重
 Pc = 100  # 额外配置点权重
 C = 0.5  # 解析解参数
@@ -92,36 +92,73 @@ model.compile("adam", lr=0.001, loss_weights=[1, Pb, Pi])
 
 # m 等分法搜索 k_eff
 m = 10  # 将 k_eff 分为 m 份
-k_eff_min = 0.90  # 最小可能的 k_eff
-k_eff_max = 1.10 # 最大可能的 k_eff
-
-k_eff_values = np.linspace(k_eff_min, k_eff_max, m)
-mean_result = []
-for k_eff in k_eff_values:
-    # 训练模型
-    losshistory, train_state = model.train(epochs=1000)
-    observe_x = np.linspace(-a / 2, a / 2, 100)
-    result = []
-    for x_value in observe_x:
-        t_value = 0.01
-        dt = 0.001
-        result.append(
-            (model.predict([x_value, t_value]) - model.predict([x_value, t_value - dt])) / dt)
-    mean_result.append(sum(result) / len(result))
-    # 更新搜索范围
-    if mean_result > epsilon:
-        k_eff_max = k_eff
-    elif mean_result < -epsilon:
-        k_eff_min = k_eff
-
-    print("k_eff:", k_eff)
-    print("mean_result:", mean_result)
-
-    if epsilon > mean_result > -epsilon:
-        print("Critical k_eff found:", k_eff)
+k_eff_min = 0.9  # 最小可能的 k_eff
+k_eff_max = 1.1  # 最大可能的 k_eff
+critical_k_eff = None  # 用于存储临界 k_eff
+while True:
+    k_eff_values = np.linspace(k_eff_min, k_eff_max, m)
+    mean_result = []
+    for k_eff in k_eff_values:
+        # 训练模型
+        losshistory, train_state = model.train(epochs=100)
+        observe_x = np.linspace(-a / 2, a / 2, 10)
+        result = []
+        for x_value in observe_x:
+            t_value = 0.01
+            dt = 0.0001
+            result.append(
+                (model.predict([x_value, t_value]) - model.predict([x_value, t_value - dt])) / dt)
+        mean_result.append(sum(result) / len(result))
+        if epsilon > mean_result[-1] > -epsilon:
+            critical_k_eff = k_eff
+            print("Critical k_eff found:", critical_k_eff)
+            print("mean_result:", mean_result[-1])
+            # 此时 k_eff 为临界值，phi(r,t>t_tau) 即为稳态时系统的 phi(r) 分布
+            # 在这里可以处理 phi(r, t > t_tau)
+            # 保存或显示训练结果
+            dde.saveplot(losshistory, train_state, issave=True, isplot=True)
+            break
+    if critical_k_eff is not None:
         break
 
+    min_negative = None
+    max_positive = None
+    min_found = False
+    max_found = False
 
+    for i in range(len(k_eff_values)):
+        # 寻找负值部分最小 k_eff
+        if mean_result[i] < -epsilon:
+            if not min_found or k_eff_values[i] < min_negative:
+                min_negative = k_eff_values[i]
+                min_found = True
+        # 寻找正值部分最大 k_eff
+        if mean_result[i] > epsilon:
+            if not max_found or k_eff_values[i] > max_positive:
+                max_positive = k_eff_values[i]
+                max_found = True
 
-# 保存或显示训练结果
-dde.saveplot(losshistory, train_state, issave=True, isplot=True)
+    if min_found:
+        k_eff_max = min_negative  # 更新 k_max
+    if max_found:
+        k_eff_min = max_positive  # 更新 k_min
+
+    print("mean_result:", mean_result)
+    print("mean_result【-1】:", mean_result[-1])
+    print("k_max:", k_eff_max)
+    print("k_min:", k_eff_min)
+    # 如果没有找到负值部分最小 k_eff 或正值部分最大 k_eff，结束循环
+    if not min_found and not max_found:
+        break
+    # # 寻找 mean_result 列表中的最小负值和最大正值
+    # min_negative = None
+    # if any(val < -epsilon for val in mean_result):
+    #     min_negative = k_eff_values[mean_result.index(min(val for val in mean_result if val < -epsilon))]
+    # max_positive = None
+    # if any(val > epsilon for val in mean_result):
+    #     max_positive = k_eff_values[mean_result.index(max(val for val in mean_result if val > epsilon))]
+    # # 更新搜索范围
+    # if min_negative is not None:
+    #     k_eff_max = min_negative  # 更新 k_max
+    # if max_positive is not None:
+    #     k_eff_min = max_positive  # 更新 k_min
