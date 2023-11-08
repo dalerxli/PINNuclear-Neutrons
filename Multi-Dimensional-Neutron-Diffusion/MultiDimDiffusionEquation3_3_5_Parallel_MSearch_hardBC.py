@@ -23,7 +23,7 @@ $$
 
 import deepxde as dde
 import numpy as np
-import torch
+import multiprocessing
 
 # 初始化参数
 k_eff = 1.00  # 有效增殖系数
@@ -96,65 +96,75 @@ model = dde.Model(data, net)
 # 定义求解器
 model.compile("adam", lr=0.001, loss_weights=[1, Pi])
 
-# m 等分法搜索 k_eff
-m = 10  # 将 k_eff 分为 m 份
-k_eff_min = 0.8  # 最小可能的 k_eff
-k_eff_max = 1.2  # 最大可能的 k_eff
-critical_k_eff = None  # 用于存储临界 k_eff
-while True:
-    k_eff_values = np.linspace(k_eff_min, k_eff_max, m)
-    mean_result = []
-    for k_eff in k_eff_values:
-        # 训练模型
-        losshistory, train_state = model.train(epochs=1000)
-        dde.saveplot(losshistory, train_state, issave=True, isplot=True)
-        observe_x = np.linspace(-a / 2, a / 2, 10)
-        result = []
-        for x_value in observe_x:
-            t_value = 0.01
-            dt = 0.0001
-            result.append((model.predict(np.array([[x_value, t_value]])) - model.predict(
-                np.array([[x_value, t_value - dt]]))) / dt)
 
-        mean_result.append(sum(result) / len(result))
-        if epsilon > mean_result[-1] > -epsilon:
-            critical_k_eff = k_eff
-            print("Critical k_eff found:", critical_k_eff)
-            print("mean_result:", mean_result[-1])
-            # 此时 k_eff 为临界值，phi(r,t>t_tau) 即为稳态时系统的 phi(r) 分布
-            # 在这里可以处理 phi(r, t > t_tau)
-            # 保存或显示训练结果
-            dde.saveplot(losshistory, train_state, issave=True, isplot=True)
+# 定义一个函数，用于并行执行每个k_eff值的训练和处理
+def process_k_eff(k_eff):
+    # 训练模型
+    losshistory, train_state = model.train(epochs=1000)
+    observe_x = np.linspace(-a / 2, a / 2, 10)
+    result = []
+    for x_value in observe_x:
+        t_value = 0.01
+        dt = 0.0001
+        result.append((model.predict(np.array([[x_value, t_value]])) - model.predict(
+            np.array([[x_value, t_value - dt]]))) / dt)
+    mean_result = sum(result) / len(result)
+    return k_eff, mean_result, losshistory, train_state
+
+
+if __name__ == '__main__':
+    m = 10  # 将 k_eff 分为 m 份
+    k_eff_min = 0.9  # 最小可能的 k_eff
+    k_eff_max = 1.1  # 最大可能的 k_eff
+    critical_k_eff = None  # 用于存储临界 k_eff
+
+    # 创建多个进程池
+    num_processes = multiprocessing.cpu_count()  # 获取可用的CPU核心数
+    pool = multiprocessing.Pool(num_processes)
+
+    while True:
+        k_eff_values = np.linspace(k_eff_min, k_eff_max, m)
+        mean_result = []
+
+        # 并行执行每个k_eff值的训练和处理
+        results = pool.map(process_k_eff, k_eff_values)
+
+        for k_eff, result, losshistory, train_state in results:
+            mean_result.append(result)
+            if epsilon > result > -epsilon:
+                critical_k_eff = k_eff
+                print("Critical k_eff found:", critical_k_eff)
+                print("mean_result:", result)
+                dde.saveplot(losshistory, train_state, issave=True, isplot=True)
+                break
+
+        if critical_k_eff is not None:
             break
-    if critical_k_eff is not None:
-        break
 
-    min_negative = None
-    max_positive = None
-    min_found = False
-    max_found = False
+        min_negative = None
+        max_positive = None
+        min_found = False
+        max_found = False
 
-    for i in range(len(k_eff_values)):
-        # 寻找负值部分最小 k_eff
-        if mean_result[i] < -epsilon:
-            if not min_found or k_eff_values[i] < min_negative:
-                min_negative = k_eff_values[i]
-                min_found = True
-        # 寻找正值部分最大 k_eff
-        if mean_result[i] > epsilon:
-            if not max_found or k_eff_values[i] > max_positive:
-                max_positive = k_eff_values[i]
-                max_found = True
+        for i in range(len(k_eff_values)):
+            if mean_result[i] < -epsilon:
+                if not min_found or k_eff_values[i] < min_negative:
+                    min_negative = k_eff_values[i]
+                    min_found = True
+            if mean_result[i] > epsilon:
+                if not max_found or k_eff_values[i] > max_positive:
+                    max_positive = k_eff_values[i]
+                    max_found = True
 
-    if min_found:
-        k_eff_max = min_negative  # 更新 k_max
-    if max_found:
-        k_eff_min = max_positive  # 更新 k_min
+        if min_found:
+            k_eff_max = min_negative
+        if max_found:
+            k_eff_min = max_positive
 
-    print("mean_result:", mean_result)
-    print("mean_result【-1】:", mean_result[-1])
-    print("k_max:", k_eff_max)
-    print("k_min:", k_eff_min)
-    # 如果没有找到负值部分最小 k_eff 或正值部分最大 k_eff，结束循环
-    if not min_found and not max_found:
-        break
+        print("mean_result:", mean_result)
+        print("mean_result【-1】:", mean_result[-1])
+        print("k_max:", k_eff_max)
+        print("k_min:", k_eff_min)
+        # 如果没有找到负值部分最小 k_eff 或正值部分最大 k_eff，结束循环
+        if not min_found and not max_found:
+            break

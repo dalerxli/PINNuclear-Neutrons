@@ -27,7 +27,7 @@ import multiprocessing
 
 # 初始化参数
 k_eff = 1.00  # 有效增殖系数
-k_inf = 1.0041  # 无穷增殖系数
+k_inf = 1.00010  # 无穷增殖系数
 epsilon = 0.001  # 临界判断阈值
 a = 1  # 平板的宽度
 D = 0.211e-2  # 扩散系数
@@ -47,8 +47,7 @@ num_terms = 10  # 考虑的项数
 
 # 定义初值条件
 def phi_0(x):
-    return np.cos(np.pi * x[:, 0:1] / a) - 0.4 * np.cos(2 * np.pi * x[:, 0:1] / a) - 0.4
-
+    return 0.5 * (np.cos(2 * np.pi * x[:, 0:1] / a) + 1)
 
 # 定义解析解
 # def phi_analytical(x):
@@ -73,11 +72,11 @@ def pde(x, phi):
 
 
 # 定义边界条件
-bc = dde.icbc.DirichletBC(geom, lambda x: 0, lambda _, on_boundary: on_boundary)
+# bc = dde.icbc.DirichletBC(geom, lambda x: 0, lambda _, on_boundary: on_boundary)
 # 定义初值条件
 ic = dde.IC(geomtime, lambda x: phi_0(x), lambda _, on_initial: on_initial)
 # 定义数据
-data = dde.data.TimePDE(geomtime, pde, [bc, ic], num_domain=300, num_boundary=200, num_initial=100, solution=None,
+data = dde.data.TimePDE(geomtime, pde, [ic], num_domain=300, num_boundary=200, num_initial=1000, solution=None,
                         num_test=10000)
 # 定义神经网络
 layer_size = [2] + [s] * l + [1]
@@ -85,10 +84,18 @@ activation = "tanh"
 # 网络初始值权重采用高斯分布随机采样
 initializer = "Glorot uniform"
 net = dde.nn.PFNN(layer_size, activation, initializer)
+
+
+# 定义硬边界条件
+def output_transform(x, y):
+    return (x[:, 0:1] + a / 2) * (x[:, 0:1] - a / 2) * y
+
+net.apply_output_transform(output_transform)
 # 定义模型
 model = dde.Model(data, net)
 # 定义求解器
-model.compile("adam", lr=0.001, loss_weights=[1, Pb, Pi])
+model.compile("adam", lr=0.001, loss_weights=[1, Pi])
+
 
 # 定义一个函数，用于并行执行每个k_eff值的训练和处理
 def process_k_eff(k_eff):
@@ -99,8 +106,8 @@ def process_k_eff(k_eff):
     for x_value in observe_x:
         t_value = 0.01
         dt = 0.0001
-        result.append(
-            (model.predict([x_value, t_value]) - model.predict([x_value, t_value - dt])) / dt)
+        result.append((model.predict(np.array([[x_value, t_value]])) - model.predict(
+            np.array([[x_value, t_value - dt]]))) / dt)
     mean_result = sum(result) / len(result)
     return k_eff, mean_result, losshistory, train_state
 
